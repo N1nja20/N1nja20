@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>N1nja Space Game</title>
+<style>
+body {
+    margin: 0;
+    overflow: hidden;
+    background: black;
+    font-family: Arial, sans-serif;
+    color: white;
+}
+<div id="health">Health: 3 ❤️</div>
+canvas {
+    display: block;
+}
+
+#score {
+    position: absolute;
+    top: 20px;
+    left: 20px;
+    font-size: 20px;
+}
+#health {
+    position: absolute;
+    top: 20px;
+    right: 20px;
+    font-size: 20px;
+}
+#message {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 30px;
+    text-align: center;
+    display: none;
+}
+</style>
+</head>
+<body>
+
+<div id="score">Score: 0</div>
+<div id="message"></div>
+<canvas id="gameCanvas"></canvas>
+<script>
+const canvas = document.getElementById("gameCanvas");
+const ctx = canvas.getContext("2d");
+
+canvas.width = window.innerWidth;
+canvas.height = window.innerHeight;
+
+/* ================= VARIABLES ================= */
+
+let keys = {};
+let score = 0;
+let health = 3;
+let gameOver = false;
+let bossMode = false;
+
+let spaceship = {
+    x: canvas.width / 2,
+    y: canvas.height - 120,
+    size: 25,
+    speed: 6
+};
+
+let asteroids = [];
+let bullets = [];
+let enemies = [];
+let stars = [];
+let boss = null;
+
+const scoreDisplay = document.getElementById("score");
+const healthDisplay = document.getElementById("health");
+const message = document.getElementById("message");
+
+/* ================= SOUND ================= */
+
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+function beep(freq, time) {
+    const osc = audioCtx.createOscillator();
+    osc.frequency.value = freq;
+    osc.connect(audioCtx.destination);
+    osc.start();
+    setTimeout(() => osc.stop(), time);
+}
+
+/* ================= CONTROLS ================= */
+
+document.addEventListener("keydown", e => {
+    keys[e.key] = true;
+    if (e.code === "Space") shoot();
+});
+document.addEventListener("keyup", e => keys[e.key] = false);
+
+/* ================= STARS ================= */
+
+for (let i = 0; i < 100; i++) {
+    stars.push({
+        x: Math.random() * canvas.width,
+        y: Math.random() * canvas.height,
+        size: Math.random() * 2
+    });
+}
+
+function drawStars() {
+    ctx.fillStyle = "white";
+    stars.forEach(s => {
+        ctx.fillRect(s.x, s.y, s.size, s.size);
+        s.y += 0.4;
+        if (s.y > canvas.height) s.y = 0;
+    });
+}
+
+/* ================= SPACESHIP ================= */
+
+function drawShip() {
+
+    if (keys["ArrowLeft"] && spaceship.x > spaceship.size)
+        spaceship.x -= spaceship.speed;
+
+    if (keys["ArrowRight"] && spaceship.x < canvas.width - spaceship.size)
+        spaceship.x += spaceship.speed;
+
+    ctx.shadowColor = "cyan";
+    ctx.shadowBlur = 15;
+
+    ctx.beginPath();
+    ctx.fillStyle = "white";
+    ctx.moveTo(spaceship.x, spaceship.y);
+    ctx.lineTo(spaceship.x - spaceship.size, spaceship.y + spaceship.size);
+    ctx.lineTo(spaceship.x + spaceship.size, spaceship.y + spaceship.size);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.shadowBlur = 0;
+}
+
+/* ================= SHOOTING ================= */
+
+function shoot() {
+    if (gameOver) return;
+    bullets.push({
+        x: spaceship.x,
+        y: spaceship.y,
+        speed: 8
+    });
+    beep(800, 80);
+}
+
+function drawBullets() {
+    ctx.fillStyle = "red";
+    bullets.forEach((b, i) => {
+        b.y -= b.speed;
+        ctx.fillRect(b.x - 2, b.y, 4, 10);
+
+        if (b.y < 0) bullets.splice(i, 1);
+    });
+}
+
+/* ================= ASTEROIDS ================= */
+
+function spawnAsteroid() {
+    asteroids.push({
+        x: Math.random() * canvas.width,
+        y: -20,
+        size: 20,
+        speed: 2 + score * 0.05
+    });
+}
+
+function drawAsteroids() {
+    ctx.fillStyle = "gray";
+
+    asteroids.forEach((a, i) => {
+        a.y += a.speed;
+        ctx.beginPath();
+        ctx.arc(a.x, a.y, a.size, 0, Math.PI * 2);
+        ctx.fill();
+
+        // bullet collision
+        bullets.forEach((b, bi) => {
+            if (Math.abs(b.x - a.x) < a.size &&
+                Math.abs(b.y - a.y) < a.size) {
+                asteroids.splice(i, 1);
+                bullets.splice(bi, 1);
+                score++;
+                scoreDisplay.innerText = "Score: " + score;
+                beep(600, 60);
+            }
+        });
+
+        // ship collision
+        if (Math.abs(spaceship.x - a.x) < a.size &&
+            Math.abs(spaceship.y - a.y) < a.size) {
+            asteroids.splice(i, 1);
+            health--;
+            healthDisplay.innerText = "Health: " + health + " ❤️";
+            beep(200, 200);
+
+            if (health <= 0) endGame(false);
+        }
+    });
+}
+
+/* ================= ENEMIES ================= */
+
+function spawnEnemy() {
+    enemies.push({
+        x: Math.random() * canvas.width,
+        y: -30,
+        size: 20,
+        speed: 2
+    });
+}
+
+function drawEnemies() {
+    ctx.fillStyle = "purple";
+
+    enemies.forEach((e, i) => {
+        e.y += e.speed;
+        ctx.fillRect(e.x - 15, e.y - 15, 30, 30);
+
+        bullets.forEach((b, bi) => {
+            if (Math.abs(b.x - e.x) < 20 &&
+                Math.abs(b.y - e.y) < 20) {
+                enemies.splice(i, 1);
+                bullets.splice(bi, 1);
+                score += 2;
+                scoreDisplay.innerText = "Score: " + score;
+            }
+        });
+
+        if (e.y > canvas.height) enemies.splice(i, 1);
+    });
+}
+
+/* ================= BOSS ================= */
+
+function spawnBoss() {
+    bossMode = true;
+    boss = { x: canvas.width/2, y: 100, health: 20 };
+}
+
+function drawBoss() {
+    if (!boss) return;
+
+    ctx.fillStyle = "red";
+    ctx.fillRect(boss.x - 60, boss.y - 30, 120, 60);
+
+    bullets.forEach((b, i) => {
+        if (Math.abs(b.x - boss.x) < 60 &&
+            Math.abs(b.y - boss.y) < 30) {
+            boss.health--;
+            bullets.splice(i, 1);
+        }
+    });
+
+    if (boss.health <= 0) {
+        endGame(true);
+    }
+}
+
+/* ================= END ================= */
+
+function endGame(win) {
+    gameOver = true;
+    message.style.display = "block";
+
+    if (win) {
+        message.innerHTML =
+            "👑 BOSS DEFEATED 👑<br><br>'You run this galaxy.'<br><br><button onclick='location.reload()'>Play Again</button>";
+    } else {
+        message.innerHTML =
+            "💀 GAME OVER 💀<br><br><button onclick='location.reload()'>Retry</button>";
+    }
+}
+
+/* ================= LOOP ================= */
+
+function gameLoop() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    drawStars();
+    drawShip();
+    drawBullets();
+    drawAsteroids();
+    drawEnemies();
+    drawBoss();
+
+    if (score >= 40 && !bossMode) spawnBoss();
+
+    requestAnimationFrame(gameLoop);
+}
+
+setInterval(spawnAsteroid, 800);
+setInterval(spawnEnemy, 3000);
+
+gameLoop();
+</script>
+</body>
+</html>
